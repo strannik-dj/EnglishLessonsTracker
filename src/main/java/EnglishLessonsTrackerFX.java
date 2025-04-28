@@ -34,13 +34,14 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.6.0
+ * Версия: v1.8.0
  * Дата: 28.04.2025
  * Изменения:
- * - Обновлена подсветка календаря: зелёный цвет для PLANNED+PAID + COMPLETED+PAID.
- * - Добавлена легенда цветов под календарём.
- * - В "Итоги по ученикам" добавлены столбец "Статус оплаты" и фильтр по статусу оплаты.
- * - Сохранены функции v1.5.0 (LessonPaidStatus, автообновление, текущая подсветка).
+ * - Добавлена сортировка в таблицу "Итоги по ученикам".
+ * - Установлена сортировка по умолчанию по первому столбцу по возрастанию ("Дата" для уроков, "Имя ученика" для итогов).
+ * - Добавлен фильтр по статусу оплаты в "Список уроков", порядок фильтров: по ученику, по статусу, по оплате.
+ * - Все фильтры в таблицах размещены в одной строке.
+ * - Сохранены функции v1.7.0 (вертикальная легенда с переносом текста и шрифтом 10px, отключение автообновления календаря, подсветка).
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -369,6 +370,11 @@ public class EnglishLessonsTrackerFX extends Application {
         statusFilter.getItems().addAll("Все", "Запланированные", "Состоявшиеся");
         statusFilter.setValue("Все");
 
+        // Фильтр по статусу оплаты
+        ComboBox<String> paidStatusFilter = new ComboBox<>();
+        paidStatusFilter.getItems().addAll("Все", "Оплаченные", "Неоплаченные");
+        paidStatusFilter.setValue("Все");
+
         // Кнопка "Добавить урок"
         Button addLessonButton = new Button("Добавить урок");
 
@@ -456,7 +462,7 @@ public class EnglishLessonsTrackerFX extends Application {
                     // Обработка клика по дате
                     dayLabel.setOnMouseClicked(event -> {
                         selectedDate[0] = date;
-                        updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue());
+                        updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue());
                     });
 
                     calendarGrid.add(dayLabel, col, row);
@@ -473,8 +479,9 @@ public class EnglishLessonsTrackerFX extends Application {
         };
 
         // Легенда цветов
-        HBox legendBox = new HBox(10);
+        VBox legendBox = new VBox(5);
         legendBox.setPadding(new Insets(10));
+        legendBox.setMaxWidth(280);
         legendBox.getChildren().addAll(
                 createLegendItem("green", "Состоявшийся (Оплаченный) или Запланированный+Состоявшийся (оба Оплаченные)"),
                 createLegendItem("orange", "Запланированный (Оплаченный)"),
@@ -492,11 +499,6 @@ public class EnglishLessonsTrackerFX extends Application {
         // Автообновление календаря при изменении уроков
         lessons.addListener((ListChangeListener<Lesson>) change -> {
             Platform.runLater(showCalendar::run);
-        });
-
-        // Обновление календаря при изменении месяца
-        monthField.textProperty().addListener((obs, oldValue, newValue) -> {
-            showCalendar.run();
         });
 
         // Добавляем элементы в calendarPane
@@ -526,7 +528,7 @@ public class EnglishLessonsTrackerFX extends Application {
                 }
                 updateAutocompleteLists(); // Обновляем списки автодополнения
                 System.out.println("lessons.addListener: Calling updateFilter with filteredLessons: " + (filteredLessons != null));
-                updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue());
+                updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue());
             });
         });
 
@@ -625,9 +627,14 @@ public class EnglishLessonsTrackerFX extends Application {
 
         table.getColumns().addAll(dateColumn, studentColumn, hourlyRateColumn, hoursColumn, totalCostColumn, statusColumn, paidStatusColumn, editColumn, deleteColumn);
 
+        // Устанавливаем сортировку по умолчанию по столбцу "Дата" по возрастанию
+        table.getSortOrder().add(dateColumn);
+        dateColumn.setSortType(TableColumn.SortType.ASCENDING);
+
         // Логика фильтрации
-        statusFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue()));
-        studentFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue()));
+        statusFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue()));
+        studentFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue()));
+        paidStatusFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue()));
 
         // Логика добавления урока через диалоговое окно
         addLessonButton.setOnAction(e -> {
@@ -729,16 +736,22 @@ public class EnglishLessonsTrackerFX extends Application {
         // Кнопка "Все уроки"
         showAllLessonsButton.setOnAction(e -> {
             selectedDate[0] = null;
-            updateFilter(filteredLessons, null, statusFilter.getValue(), studentFilter.getValue());
+            updateFilter(filteredLessons, null, statusFilter.getValue(), studentFilter.getValue(), paidStatusFilter.getValue());
+            showCalendar.run();
         });
 
-        VBox tablePane = new VBox(10);
-        tablePane.getChildren().addAll(
-                new Label("Фильтр по статусу:"), statusFilter,
-                new Label("Фильтр по ученику:"), studentFilter,
-                addLessonButton,
-                table
+        // Размещение фильтров в одной строке
+        HBox filterPane = new HBox(10);
+        filterPane.setPadding(new Insets(5));
+        filterPane.getChildren().addAll(
+                new Label("Ученик:"), studentFilter,
+                new Label("Статус:"), statusFilter,
+                new Label("Оплата:"), paidStatusFilter
         );
+
+        VBox tablePane = new VBox(10);
+        tablePane.setPadding(new Insets(10));
+        tablePane.getChildren().addAll(filterPane, addLessonButton, table);
 
         // Настройка HBox для динамического распределения пространства
         HBox.setHgrow(tablePane, Priority.ALWAYS);
@@ -751,14 +764,16 @@ public class EnglishLessonsTrackerFX extends Application {
         Rectangle colorSquare = new Rectangle(15, 15);
         colorSquare.setStyle("-fx-fill: " + color + "; -fx-stroke: black; -fx-stroke-width: 1;");
         Label label = new Label(description);
+        label.setWrapText(true);
+        label.setStyle("-fx-font-size: 10px;");
         HBox item = new HBox(5, colorSquare, label);
         item.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         return item;
     }
 
     // Метод для обновления фильтра
-    private void updateFilter(FilteredList<Lesson> filteredLessons, LocalDate selectedDate, String statusFilter, String studentFilter) {
-        System.out.println("updateFilter: selectedDate=" + selectedDate + ", statusFilter=" + statusFilter + ", studentFilter=" + studentFilter);
+    private void updateFilter(FilteredList<Lesson> filteredLessons, LocalDate selectedDate, String statusFilter, String studentFilter, String paidStatusFilter) {
+        System.out.println("updateFilter: selectedDate=" + selectedDate + ", statusFilter=" + statusFilter + ", studentFilter=" + studentFilter + ", paidStatusFilter=" + paidStatusFilter);
         filteredLessons.setPredicate(lesson -> {
             boolean dateMatch = selectedDate == null || lesson.getDate().equals(selectedDate);
             boolean statusMatch = statusFilter == null || statusFilter.equals("Все") ||
@@ -766,9 +781,12 @@ public class EnglishLessonsTrackerFX extends Application {
                     (statusFilter.equals("Состоявшиеся") && lesson.getStatus() == LessonStatus.COMPLETED);
             boolean studentMatch = studentFilter == null || studentFilter.equals("Все") ||
                     lesson.getStudentName().equals(studentFilter);
+            boolean paidStatusMatch = paidStatusFilter == null || paidStatusFilter.equals("Все") ||
+                    (paidStatusFilter.equals("Оплаченные") && lesson.getPaidStatus() == LessonPaidStatus.PAID) ||
+                    (paidStatusFilter.equals("Неоплаченные") && lesson.getPaidStatus() == LessonPaidStatus.UNPAID);
             System.out.println("Lesson: " + lesson.getFormattedDate() + ", " + lesson.getStudentName() +
-                    " -> dateMatch=" + dateMatch + ", statusMatch=" + statusMatch + ", studentMatch=" + studentMatch);
-            return dateMatch && statusMatch && studentMatch;
+                    " -> dateMatch=" + dateMatch + ", statusMatch=" + statusMatch + ", studentMatch=" + studentMatch + ", paidStatusMatch=" + paidStatusMatch);
+            return dateMatch && statusMatch && studentMatch && paidStatusMatch;
         });
     }
 
@@ -923,6 +941,12 @@ public class EnglishLessonsTrackerFX extends Application {
         Button showSummaryButton = new Button("Показать итоги");
 
         TableView<StudentSummary> table = new TableView<>();
+        // Используем SortedList для сортировки
+        ObservableList<StudentSummary> summaries = FXCollections.observableArrayList();
+        SortedList<StudentSummary> sortedSummaries = new SortedList<>(summaries);
+        sortedSummaries.comparatorProperty().bind(table.comparatorProperty());
+        table.setItems(sortedSummaries);
+
         table.setSortPolicy(param -> {
             // Сортировка, но "ИТОГО" остается внизу
             ObservableList<StudentSummary> items = table.getItems();
@@ -974,6 +998,10 @@ public class EnglishLessonsTrackerFX extends Application {
 
         table.getColumns().addAll(studentColumn, hoursColumn, totalCostColumn, paidStatusColumn);
 
+        // Устанавливаем сортировку по умолчанию по столбцу "Имя ученика" по возрастанию
+        table.getSortOrder().add(studentColumn);
+        studentColumn.setSortType(TableColumn.SortType.ASCENDING);
+
         // Логика отображения итогов
         Runnable showSummary = () -> {
             try {
@@ -983,7 +1011,7 @@ public class EnglishLessonsTrackerFX extends Application {
                 String selectedStudent = studentFilter.getValue();
                 String selectedPaidStatus = paidStatusFilter.getValue();
 
-                ObservableList<StudentSummary> summaries = FXCollections.observableArrayList();
+                summaries.clear();
                 var filteredLessons = lessons.stream()
                         .filter(lesson -> !lesson.getDate().isBefore(startDate) && !lesson.getDate().isAfter(endDate))
                         .filter(lesson -> lesson.getStatus() == LessonStatus.COMPLETED);
@@ -1031,8 +1059,6 @@ public class EnglishLessonsTrackerFX extends Application {
                     String paidStatus = allPaid ? "Оплаченный" : allUnpaid ? "Неоплаченный" : "Смешанный";
                     summaries.add(new StudentSummary("ИТОГО", grandTotalHours, grandTotalCost, paidStatus));
                 }
-
-                table.setItems(summaries);
             } catch (Exception ex) {
                 Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте формат даты (мм.гггг).");
                 alert.showAndWait();
@@ -1049,11 +1075,17 @@ public class EnglishLessonsTrackerFX extends Application {
         studentFilter.setOnAction(e -> showSummary.run());
         paidStatusFilter.setOnAction(e -> showSummary.run());
 
+        // Размещение фильтров в одной строке
+        HBox filterPane = new HBox(10);
+        filterPane.setPadding(new Insets(5));
+        filterPane.getChildren().addAll(
+                new Label("Ученик:"), studentFilter,
+                new Label("Оплата:"), paidStatusFilter
+        );
+
         pane.getChildren().addAll(
                 new Label("Введите месяц для итогов:"), monthField,
-                new Label("Фильтр по ученику:"), studentFilter,
-                new Label("Фильтр по статусу оплаты:"), paidStatusFilter,
-                showSummaryButton, table
+                filterPane, showSummaryButton, table
         );
         return pane;
     }
