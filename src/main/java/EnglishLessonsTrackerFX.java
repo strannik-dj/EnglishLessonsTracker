@@ -33,13 +33,15 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.4.0
+ * Версия: v1.5.0
  * Дата: 28.04.2025
  * Изменения:
- * - Добавлено автообновление календаря при изменении списка уроков.
- * - Удалена кнопка "Показать календарь".
- * - Даты с уроками COMPLETED и PLANNED подсвечиваются синим цветом.
- * - Сохранены исправления v1.3.0 (сортировка с SortedList, приоритет жёлтого фона).
+ * - Добавлено перечисление LessonPaidStatus (PAID, UNPAID).
+ * - Обновлены добавление/редактирование уроков для задания paidStatus.
+ * - Обновлена подсветка календаря: PLANNED+PAID → оранжевый, COMPLETED+PAID → зелёный, PLANNED+UNPAID → голубой, COMPLETED+UNPAID → жёлтый.
+ * - Добавлен столбец paidStatus в таблицу уроков.
+ * - Обеспечена обратная совместимость с lessons.xml (по умолчанию UNPAID).
+ * - Сохранены функции v1.4.0 (автообновление календаря, синяя подсветка для PLANNED+COMPLETED, сортировка).
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -60,6 +62,23 @@ public class EnglishLessonsTrackerFX extends Application {
         }
     }
 
+    // Перечисление для статуса оплаты урока
+    public enum LessonPaidStatus {
+        PAID("Оплаченный"),
+        UNPAID("Неоплаченный");
+
+        private final String displayName;
+
+        LessonPaidStatus(String displayName) {
+            this.displayName = displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
+
     // Класс для хранения данных об уроке
     public static class Lesson {
         private final LocalDate date;
@@ -68,14 +87,16 @@ public class EnglishLessonsTrackerFX extends Application {
         private final double hours;
         private final double totalCost;
         private final LessonStatus status;
+        private final LessonPaidStatus paidStatus;
 
-        public Lesson(LocalDate date, String studentName, double hourlyRate, double hours, LessonStatus status) {
+        public Lesson(LocalDate date, String studentName, double hourlyRate, double hours, LessonStatus status, LessonPaidStatus paidStatus) {
             this.date = date;
             this.studentName = studentName;
             this.hourlyRate = hourlyRate;
             this.hours = hours;
             this.totalCost = hourlyRate * hours;
             this.status = status;
+            this.paidStatus = paidStatus;
         }
 
         public LocalDate getDate() {
@@ -100,6 +121,10 @@ public class EnglishLessonsTrackerFX extends Application {
 
         public LessonStatus getStatus() {
             return status;
+        }
+
+        public LessonPaidStatus getPaidStatus() {
+            return paidStatus;
         }
 
         public String getFormattedDate() {
@@ -187,8 +212,12 @@ public class EnglishLessonsTrackerFX extends Application {
                 double hours = Double.parseDouble(lessonElement.getElementsByTagName("hours").item(0).getTextContent());
                 String statusStr = lessonElement.getElementsByTagName("status").item(0).getTextContent();
                 LessonStatus status = LessonStatus.valueOf(statusStr);
+                // Для обратной совместимости: если paidStatus отсутствует, устанавливаем UNPAID
+                String paidStatusStr = lessonElement.getElementsByTagName("paidStatus").getLength() > 0 ?
+                        lessonElement.getElementsByTagName("paidStatus").item(0).getTextContent() : "UNPAID";
+                LessonPaidStatus paidStatus = LessonPaidStatus.valueOf(paidStatusStr);
 
-                lessons.add(new Lesson(date, studentName, hourlyRate, hours, status));
+                lessons.add(new Lesson(date, studentName, hourlyRate, hours, status, paidStatus));
             }
             System.out.println("Loaded lessons from XML: " + lessons.size());
         } catch (Exception e) {
@@ -231,6 +260,10 @@ public class EnglishLessonsTrackerFX extends Application {
                 Element statusElement = doc.createElement("status");
                 statusElement.appendChild(doc.createTextNode(lesson.getStatus().name()));
                 lessonElement.appendChild(statusElement);
+
+                Element paidStatusElement = doc.createElement("paidStatus");
+                paidStatusElement.appendChild(doc.createTextNode(lesson.getPaidStatus().name()));
+                lessonElement.appendChild(paidStatusElement);
 
                 root.appendChild(lessonElement);
             }
@@ -365,20 +398,30 @@ public class EnglishLessonsTrackerFX extends Application {
                             .toList();
                     boolean hasPlanned = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED);
                     boolean hasCompleted = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED);
+                    boolean hasPlannedPaid = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED && lesson.getPaidStatus() == LessonPaidStatus.PAID);
+                    boolean hasCompletedPaid = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED && lesson.getPaidStatus() == LessonPaidStatus.PAID);
+                    boolean hasPlannedUnpaid = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED && lesson.getPaidStatus() == LessonPaidStatus.UNPAID);
+                    boolean hasCompletedUnpaid = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED && lesson.getPaidStatus() == LessonPaidStatus.UNPAID);
 
                     // Логирование для диагностики
                     if (day == 20 || day == 28) {
-                        System.out.println("Calendar date: " + date + ", hasCompleted: " + hasCompleted + ", hasPlanned: " + hasPlanned);
-                        lessonsOnDate.forEach(lesson -> System.out.println("Lesson: " + lesson.getFormattedDate() + ", Status: " + lesson.getStatus()));
+                        System.out.println("Calendar date: " + date + ", hasCompleted: " + hasCompleted + ", hasPlanned: " + hasPlanned +
+                                ", hasPlannedPaid: " + hasPlannedPaid + ", hasCompletedPaid: " + hasCompletedPaid +
+                                ", hasPlannedUnpaid: " + hasPlannedUnpaid + ", hasCompletedUnpaid: " + hasCompletedUnpaid);
+                        lessonsOnDate.forEach(lesson -> System.out.println("Lesson: " + lesson.getFormattedDate() + ", Status: " + lesson.getStatus() + ", PaidStatus: " + lesson.getPaidStatus()));
                     }
 
-                    // Устанавливаем стиль с приоритетом для синих дат
+                    // Устанавливаем стиль с приоритетом
                     String baseStyle = "-fx-border-color: black; -fx-border-width: 1;";
                     if (hasCompleted && hasPlanned) {
                         dayLabel.setStyle("-fx-background-color: blue; -fx-text-fill: white; " + baseStyle);
-                    } else if (hasCompleted) {
+                    } else if (hasCompletedPaid) {
+                        dayLabel.setStyle("-fx-background-color: green; " + baseStyle);
+                    } else if (hasPlannedPaid) {
+                        dayLabel.setStyle("-fx-background-color: orange; " + baseStyle);
+                    } else if (hasCompletedUnpaid) {
                         dayLabel.setStyle("-fx-background-color: yellow; " + baseStyle);
-                    } else if (hasPlanned) {
+                    } else if (hasPlannedUnpaid) {
                         dayLabel.setStyle("-fx-background-color: lightblue; " + baseStyle);
                     } else if (date.equals(today)) {
                         dayLabel.setStyle("-fx-background-color: lightgray; -fx-font-weight: bold; " + baseStyle);
@@ -388,8 +431,11 @@ public class EnglishLessonsTrackerFX extends Application {
 
                     // Hover-эффект
                     String hoverStyle = (hasCompleted && hasPlanned) ? "-fx-background-color: skyblue;" :
-                            hasCompleted ? "-fx-background-color: gold;" :
-                                    hasPlanned ? "-fx-background-color: skyblue;" : "-fx-background-color: #f0f0f0;";
+                            hasCompletedPaid ? "-fx-background-color: limegreen;" :
+                                    hasPlannedPaid ? "-fx-background-color: darkorange;" :
+                                            hasCompletedUnpaid ? "-fx-background-color: gold;" :
+                                                    hasPlannedUnpaid ? "-fx-background-color: skyblue;" :
+                                                            "-fx-background-color: #f0f0f0;";
                     dayLabel.setOnMouseEntered(event -> {
                         String currentStyle = dayLabel.getStyle();
                         dayLabel.setStyle(hoverStyle + " " + currentStyle);
@@ -497,6 +543,10 @@ public class EnglishLessonsTrackerFX extends Application {
         statusColumn.setCellValueFactory(new PropertyValueFactory<>("status"));
         statusColumn.setSortable(true);
 
+        TableColumn<Lesson, LessonPaidStatus> paidStatusColumn = new TableColumn<>("Статус оплаты");
+        paidStatusColumn.setCellValueFactory(new PropertyValueFactory<>("paidStatus"));
+        paidStatusColumn.setSortable(true);
+
         // Колонка для кнопки редактирования
         TableColumn<Lesson, Void> editColumn = new TableColumn<>("Редактировать");
         editColumn.setCellFactory(param -> new TableCell<>() {
@@ -553,7 +603,7 @@ public class EnglishLessonsTrackerFX extends Application {
         });
         deleteColumn.setSortable(false);
 
-        table.getColumns().addAll(dateColumn, studentColumn, hourlyRateColumn, hoursColumn, totalCostColumn, statusColumn, editColumn, deleteColumn);
+        table.getColumns().addAll(dateColumn, studentColumn, hourlyRateColumn, hoursColumn, totalCostColumn, statusColumn, paidStatusColumn, editColumn, deleteColumn);
 
         // Логика фильтрации
         statusFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue()));
@@ -595,6 +645,10 @@ public class EnglishLessonsTrackerFX extends Application {
             statusComboBox.getItems().addAll(LessonStatus.PLANNED, LessonStatus.COMPLETED);
             statusComboBox.setValue(LessonStatus.PLANNED);
 
+            ComboBox<LessonPaidStatus> paidStatusComboBox = new ComboBox<>();
+            paidStatusComboBox.getItems().addAll(LessonPaidStatus.PAID, LessonPaidStatus.UNPAID);
+            paidStatusComboBox.setValue(LessonPaidStatus.UNPAID);
+
             grid.add(new Label("Дата урока:"), 0, 0);
             grid.add(dateField, 1, 0);
             grid.add(new Label("Имя ученика:"), 0, 1);
@@ -605,6 +659,8 @@ public class EnglishLessonsTrackerFX extends Application {
             grid.add(hoursField, 1, 3);
             grid.add(new Label("Статус урока:"), 0, 4);
             grid.add(statusComboBox, 1, 4);
+            grid.add(new Label("Статус оплаты:"), 0, 5);
+            grid.add(paidStatusComboBox, 1, 5);
 
             dialog.getDialogPane().setContent(grid);
 
@@ -617,6 +673,7 @@ public class EnglishLessonsTrackerFX extends Application {
                         double hourlyRate = Double.parseDouble(hourlyRateField.getText());
                         double hours = Double.parseDouble(hoursField.getText());
                         LessonStatus status = statusComboBox.getValue();
+                        LessonPaidStatus paidStatus = paidStatusComboBox.getValue();
 
                         if (studentName.isEmpty()) {
                             throw new IllegalArgumentException("Имя ученика не может быть пустым");
@@ -624,8 +681,11 @@ public class EnglishLessonsTrackerFX extends Application {
                         if (status == null) {
                             throw new IllegalArgumentException("Статус урока должен быть выбран");
                         }
+                        if (paidStatus == null) {
+                            throw new IllegalArgumentException("Статус оплаты должен быть выбран");
+                        }
 
-                        return new Lesson(date, studentName, hourlyRate, hours, status);
+                        return new Lesson(date, studentName, hourlyRate, hours, status, paidStatus);
                     } catch (Exception ex) {
                         Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте введенные данные. " + ex.getMessage());
                         alert.showAndWait();
@@ -639,7 +699,8 @@ public class EnglishLessonsTrackerFX extends Application {
             Optional<Lesson> result = dialog.showAndWait();
             result.ifPresent(newLesson -> {
                 lessons.add(newLesson);
-                System.out.println("Добавлен урок: " + newLesson.getFormattedDate() + ", " + newLesson.getStudentName());
+                System.out.println("Добавлен урок: " + newLesson.getFormattedDate() + ", " + newLesson.getStudentName() +
+                        ", Status: " + newLesson.getStatus() + ", PaidStatus: " + newLesson.getPaidStatus());
                 saveLessonsToXML();
                 updateAutocompleteLists();
             });
@@ -717,6 +778,10 @@ public class EnglishLessonsTrackerFX extends Application {
         statusComboBox.getItems().addAll(LessonStatus.PLANNED, LessonStatus.COMPLETED);
         statusComboBox.setValue(lesson.getStatus());
 
+        ComboBox<LessonPaidStatus> paidStatusComboBox = new ComboBox<>();
+        paidStatusComboBox.getItems().addAll(LessonPaidStatus.PAID, LessonPaidStatus.UNPAID);
+        paidStatusComboBox.setValue(lesson.getPaidStatus());
+
         grid.add(new Label("Дата урока:"), 0, 0);
         grid.add(dateField, 1, 0);
         grid.add(new Label("Имя ученика:"), 0, 1);
@@ -727,6 +792,8 @@ public class EnglishLessonsTrackerFX extends Application {
         grid.add(hoursField, 1, 3);
         grid.add(new Label("Статус урока:"), 0, 4);
         grid.add(statusComboBox, 1, 4);
+        grid.add(new Label("Статус оплаты:"), 0, 5);
+        grid.add(paidStatusComboBox, 1, 5);
 
         dialog.getDialogPane().setContent(grid);
 
@@ -739,6 +806,7 @@ public class EnglishLessonsTrackerFX extends Application {
                     double hourlyRate = Double.parseDouble(hourlyRateField.getText());
                     double hours = Double.parseDouble(hoursField.getText());
                     LessonStatus status = statusComboBox.getValue();
+                    LessonPaidStatus paidStatus = paidStatusComboBox.getValue();
 
                     if (studentName.isEmpty()) {
                         throw new IllegalArgumentException("Имя ученика не может быть пустым");
@@ -746,8 +814,11 @@ public class EnglishLessonsTrackerFX extends Application {
                     if (status == null) {
                         throw new IllegalArgumentException("Статус урока должен быть выбран");
                     }
+                    if (paidStatus == null) {
+                        throw new IllegalArgumentException("Статус оплаты должен быть выбран");
+                    }
 
-                    return new Lesson(date, studentName, hourlyRate, hours, status);
+                    return new Lesson(date, studentName, hourlyRate, hours, status, paidStatus);
                 } catch (Exception e) {
                     Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте введенные данные. " + e.getMessage());
                     alert.showAndWait();
