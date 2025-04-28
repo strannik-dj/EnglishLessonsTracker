@@ -33,13 +33,13 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.3.0
+ * Версия: v1.4.0
  * Дата: 28.04.2025
  * Изменения:
- * - Исправлена сортировка таблицы уроков с использованием SortedList.
- * - Исправлена подсветка календаря: жёлтый фон для дат с состоявшимися уроками имеет приоритет.
- * - Добавлено логирование для проверки уроков в календаре.
- * - Сохранена функциональность v1.2.0 (кнопка "Добавить урок" вместо вкладки).
+ * - Добавлено автообновление календаря при изменении списка уроков.
+ * - Удалена кнопка "Показать календарь".
+ * - Даты с уроками COMPLETED и PLANNED подсвечиваются синим цветом.
+ * - Сохранены исправления v1.3.0 (сортировка с SortedList, приоритет жёлтого фона).
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -293,7 +293,7 @@ public class EnglishLessonsTrackerFX extends Application {
         // Логирование для диагностики
         System.out.println("createLessonsPane: filteredLessons initialized: " + (filteredLessons != null));
 
-        // Календарь и кнопка
+        // Календарь
         VBox calendarPane = new VBox(10);
         calendarPane.setMinWidth(300);
         calendarPane.setPrefWidth(300);
@@ -309,7 +309,6 @@ public class EnglishLessonsTrackerFX extends Application {
             }
         });
 
-        Button showCalendarButton = new Button("Показать календарь");
         Button showAllLessonsButton = new Button("Все уроки");
         GridPane calendarGrid = new GridPane();
         calendarGrid.setHgap(10);
@@ -335,6 +334,111 @@ public class EnglishLessonsTrackerFX extends Application {
         // Кнопка "Добавить урок"
         Button addLessonButton = new Button("Добавить урок");
 
+        // Логика календаря
+        Runnable showCalendar = () -> {
+            try {
+                YearMonth yearMonth = YearMonth.parse(monthField.getText(), DateTimeFormatter.ofPattern("MM.yyyy"));
+                calendarGrid.getChildren().clear();
+
+                // Заголовки дней недели
+                String[] days = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
+                for (int i = 0; i < 7; i++) {
+                    calendarGrid.add(new Label(days[i]), i, 0);
+                }
+
+                LocalDate startDate = yearMonth.atDay(1);
+                int firstDayOfWeek = startDate.getDayOfWeek().getValue(); // 1 = Пн, 7 = Вс
+                int daysInMonth = yearMonth.lengthOfMonth();
+                LocalDate today = LocalDate.now();
+
+                int row = 1;
+                int col = firstDayOfWeek - 1;
+                for (int day = 1; day <= daysInMonth; day++) {
+                    LocalDate date = yearMonth.atDay(day);
+                    Label dayLabel = new Label(String.valueOf(day));
+                    dayLabel.setPadding(new Insets(5));
+                    dayLabel.setStyle("-fx-border-color: black; -fx-border-width: 1;");
+
+                    // Проверяем наличие уроков
+                    List<Lesson> lessonsOnDate = lessons.stream()
+                            .filter(lesson -> lesson.getDate().equals(date))
+                            .toList();
+                    boolean hasPlanned = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED);
+                    boolean hasCompleted = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED);
+
+                    // Логирование для диагностики
+                    if (day == 20 || day == 28) {
+                        System.out.println("Calendar date: " + date + ", hasCompleted: " + hasCompleted + ", hasPlanned: " + hasPlanned);
+                        lessonsOnDate.forEach(lesson -> System.out.println("Lesson: " + lesson.getFormattedDate() + ", Status: " + lesson.getStatus()));
+                    }
+
+                    // Устанавливаем стиль с приоритетом для синих дат
+                    String baseStyle = "-fx-border-color: black; -fx-border-width: 1;";
+                    if (hasCompleted && hasPlanned) {
+                        dayLabel.setStyle("-fx-background-color: blue; -fx-text-fill: white; " + baseStyle);
+                    } else if (hasCompleted) {
+                        dayLabel.setStyle("-fx-background-color: yellow; " + baseStyle);
+                    } else if (hasPlanned) {
+                        dayLabel.setStyle("-fx-background-color: lightblue; " + baseStyle);
+                    } else if (date.equals(today)) {
+                        dayLabel.setStyle("-fx-background-color: lightgray; -fx-font-weight: bold; " + baseStyle);
+                    } else {
+                        dayLabel.setStyle(baseStyle);
+                    }
+
+                    // Hover-эффект
+                    String hoverStyle = (hasCompleted && hasPlanned) ? "-fx-background-color: skyblue;" :
+                            hasCompleted ? "-fx-background-color: gold;" :
+                                    hasPlanned ? "-fx-background-color: skyblue;" : "-fx-background-color: #f0f0f0;";
+                    dayLabel.setOnMouseEntered(event -> {
+                        String currentStyle = dayLabel.getStyle();
+                        dayLabel.setStyle(hoverStyle + " " + currentStyle);
+                    });
+                    dayLabel.setOnMouseExited(event -> {
+                        String currentStyle = dayLabel.getStyle().replace(hoverStyle, "");
+                        dayLabel.setStyle(currentStyle);
+                    });
+
+                    // Обработка клика по дате
+                    dayLabel.setOnMouseClicked(event -> {
+                        selectedDate[0] = date;
+                        updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue());
+                    });
+
+                    calendarGrid.add(dayLabel, col, row);
+                    col++;
+                    if (col == 7) {
+                        col = 0;
+                        row++;
+                    }
+                }
+            } catch (Exception ex) {
+                Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте формат даты (мм.гггг).");
+                alert.showAndWait();
+            }
+        };
+
+        // Автоматический показ календаря при загрузке
+        if (!monthField.getText().isEmpty()) {
+            showCalendar.run();
+        }
+
+        // Автообновление календаря при изменении уроков
+        lessons.addListener((ListChangeListener<Lesson>) change -> {
+            Platform.runLater(showCalendar::run);
+        });
+
+        // Обновление календаря при изменении месяца
+        monthField.textProperty().addListener((obs, oldValue, newValue) -> {
+            showCalendar.run();
+        });
+
+        // Добавляем элементы в calendarPane
+        calendarPane.getChildren().addAll(
+                new Label("Введите месяц для календаря:"), monthField,
+                showAllLessonsButton, calendarGrid
+        );
+
         // Обновление списка учеников при изменении lessons
         lessons.addListener((ListChangeListener<Lesson>) change -> {
             Platform.runLater(() -> {
@@ -359,12 +463,6 @@ public class EnglishLessonsTrackerFX extends Application {
                 updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue());
             });
         });
-
-        // Добавляем элементы в calendarPane
-        calendarPane.getChildren().addAll(
-                new Label("Введите месяц для календаря:"), monthField,
-                showCalendarButton, showAllLessonsButton, calendarGrid
-        );
 
         // Таблица уроков
         TableView<Lesson> table = new TableView<>();
@@ -547,95 +645,6 @@ public class EnglishLessonsTrackerFX extends Application {
             });
         });
 
-        // Логика календаря
-        Runnable showCalendar = () -> {
-            try {
-                YearMonth yearMonth = YearMonth.parse(monthField.getText(), DateTimeFormatter.ofPattern("MM.yyyy"));
-                calendarGrid.getChildren().clear();
-
-                // Заголовки дней недели
-                String[] days = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
-                for (int i = 0; i < 7; i++) {
-                    calendarGrid.add(new Label(days[i]), i, 0);
-                }
-
-                LocalDate startDate = yearMonth.atDay(1);
-                int firstDayOfWeek = startDate.getDayOfWeek().getValue(); // 1 = Пн, 7 = Вс
-                int daysInMonth = yearMonth.lengthOfMonth();
-                LocalDate today = LocalDate.now();
-
-                int row = 1;
-                int col = firstDayOfWeek - 1;
-                for (int day = 1; day <= daysInMonth; day++) {
-                    LocalDate date = yearMonth.atDay(day);
-                    Label dayLabel = new Label(String.valueOf(day));
-                    dayLabel.setPadding(new Insets(5));
-                    dayLabel.setStyle("-fx-border-color: black; -fx-border-width: 1;");
-
-                    // Проверяем наличие уроков
-                    List<Lesson> lessonsOnDate = lessons.stream()
-                            .filter(lesson -> lesson.getDate().equals(date))
-                            .toList();
-                    boolean hasPlanned = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED);
-                    boolean hasCompleted = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED);
-
-                    // Логирование для диагностики
-                    if (day == 20 || day == 28) {
-                        System.out.println("Calendar date: " + date + ", hasCompleted: " + hasCompleted + ", hasPlanned: " + hasPlanned);
-                        lessonsOnDate.forEach(lesson -> System.out.println("Lesson: " + lesson.getFormattedDate() + ", Status: " + lesson.getStatus()));
-                    }
-
-                    // Устанавливаем стиль с приоритетом для COMPLETED
-                    String baseStyle = "-fx-border-color: black; -fx-border-width: 1;";
-                    if (hasCompleted) {
-                        dayLabel.setStyle("-fx-background-color: yellow; " + baseStyle);
-                    } else if (hasPlanned) {
-                        dayLabel.setStyle("-fx-background-color: lightblue; " + baseStyle);
-                    } else if (date.equals(today)) {
-                        dayLabel.setStyle("-fx-background-color: lightgray; -fx-font-weight: bold; " + baseStyle);
-                    } else {
-                        dayLabel.setStyle(baseStyle);
-                    }
-
-                    // Hover-эффект
-                    String hoverStyle = hasCompleted ? "-fx-background-color: gold;" :
-                            hasPlanned ? "-fx-background-color: skyblue;" : "-fx-background-color: #f0f0f0;";
-                    dayLabel.setOnMouseEntered(event -> {
-                        String currentStyle = dayLabel.getStyle();
-                        dayLabel.setStyle(hoverStyle + " " + currentStyle);
-                    });
-                    dayLabel.setOnMouseExited(event -> {
-                        String currentStyle = dayLabel.getStyle().replace(hoverStyle, "");
-                        dayLabel.setStyle(currentStyle);
-                    });
-
-                    // Обработка клика по дате
-                    dayLabel.setOnMouseClicked(event -> {
-                        selectedDate[0] = date;
-                        updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue());
-                    });
-
-                    calendarGrid.add(dayLabel, col, row);
-                    col++;
-                    if (col == 7) {
-                        col = 0;
-                        row++;
-                    }
-                }
-            } catch (Exception ex) {
-                Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте формат даты (мм.гггг).");
-                alert.showAndWait();
-            }
-        };
-
-        // Автоматический показ календаря при загрузке
-        if (!monthField.getText().isEmpty()) {
-            showCalendar.run();
-        }
-
-        // Обновление календаря по кнопке
-        showCalendarButton.setOnAction(e -> showCalendar.run());
-
         // Кнопка "Все уроки"
         showAllLessonsButton.setOnAction(e -> {
             selectedDate[0] = null;
@@ -696,9 +705,9 @@ public class EnglishLessonsTrackerFX extends Application {
         studentField.setPromptText("Имя ученика");
         TextFields.bindAutoCompletion(studentField, previousStudentNames);
 
-        TextField HourlyRateField = new TextField(String.valueOf(lesson.getHourlyRate()));
-        HourlyRateField.setPromptText("Цена за 1 час (руб)");
-        TextFields.bindAutoCompletion(HourlyRateField, previousHourlyRates);
+        TextField hourlyRateField = new TextField(String.valueOf(lesson.getHourlyRate()));
+        hourlyRateField.setPromptText("Цена за 1 час (руб)");
+        TextFields.bindAutoCompletion(hourlyRateField, previousHourlyRates);
 
         TextField hoursField = new TextField(String.valueOf(lesson.getHours()));
         hoursField.setPromptText("Количество часов");
@@ -713,7 +722,7 @@ public class EnglishLessonsTrackerFX extends Application {
         grid.add(new Label("Имя ученика:"), 0, 1);
         grid.add(studentField, 1, 1);
         grid.add(new Label("Цена за 1 час:"), 0, 2);
-        grid.add(HourlyRateField, 1, 2);
+        grid.add(hourlyRateField, 1, 2);
         grid.add(new Label("Количество часов:"), 0, 3);
         grid.add(hoursField, 1, 3);
         grid.add(new Label("Статус урока:"), 0, 4);
@@ -727,7 +736,7 @@ public class EnglishLessonsTrackerFX extends Application {
                 try {
                     LocalDate date = LocalDate.parse(dateField.getText(), dateFormatter);
                     String studentName = studentField.getText();
-                    double hourlyRate = Double.parseDouble(HourlyRateField.getText());
+                    double hourlyRate = Double.parseDouble(hourlyRateField.getText());
                     double hours = Double.parseDouble(hoursField.getText());
                     LessonStatus status = statusComboBox.getValue();
 
