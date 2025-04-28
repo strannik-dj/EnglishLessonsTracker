@@ -32,12 +32,13 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.1.0
+ * Версия: v1.2.0
  * Дата: 28.04.2025
  * Изменения:
- * - Исправлена ошибка "cannot find symbol: filteredLessons" в createLessonsPane (строка ~406).
- * - Перемещено объявление filteredLessons и selectedDate в начало метода createLessonsPane.
- * - Добавлено логирование для диагностики.
+ * - Удалена вкладка "Добавить урок".
+ * - Добавлена кнопка "Добавить урок" на вкладке "Список уроков".
+ * - Логика добавления урока перенесена в диалоговое окно, вызываемое кнопкой.
+ * - Метод createAddLessonPane удалён, функционал интегрирован в createLessonsPane.
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -153,11 +154,10 @@ public class EnglishLessonsTrackerFX extends Application {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
-        Tab addLessonTab = new Tab("Добавить урок", createAddLessonPane());
         Tab lessonsTab = new Tab("Список уроков", createLessonsPane());
         Tab summaryTab = new Tab("Итоги по ученикам", createSummaryPane());
 
-        tabPane.getTabs().addAll(addLessonTab, lessonsTab, summaryTab);
+        tabPane.getTabs().addAll(lessonsTab, summaryTab);
 
         // Основная сцена
         Scene scene = new Scene(tabPane, 1000, 600);
@@ -278,83 +278,7 @@ public class EnglishLessonsTrackerFX extends Application {
         );
     }
 
-    // Вкладка для добавления урока
-    private Pane createAddLessonPane() {
-        VBox pane = new VBox(10);
-        pane.setPadding(new Insets(10));
-
-        // Поля ввода с автодополнением
-        TextField dateField = new TextField();
-        dateField.setPromptText("Дата (дд.мм.гггг)");
-        TextFields.bindAutoCompletion(dateField, previousDates);
-
-        TextField studentField = new TextField();
-        studentField.setPromptText("Имя ученика");
-        TextFields.bindAutoCompletion(studentField, previousStudentNames);
-
-        TextField hourlyRateField = new TextField();
-        hourlyRateField.setPromptText("Цена за 1 час (руб)");
-        TextFields.bindAutoCompletion(hourlyRateField, previousHourlyRates);
-
-        TextField hoursField = new TextField();
-        hoursField.setPromptText("Количество часов");
-        TextFields.bindAutoCompletion(hoursField, previousHours);
-
-        // Выбор статуса
-        ComboBox<LessonStatus> statusComboBox = new ComboBox<>();
-        statusComboBox.getItems().addAll(LessonStatus.PLANNED, LessonStatus.COMPLETED);
-        statusComboBox.setPromptText("Статус урока");
-        statusComboBox.setValue(LessonStatus.PLANNED); // Значение по умолчанию
-
-        Button addButton = new Button("Добавить урок");
-        Label statusLabel = new Label();
-
-        addButton.setOnAction(e -> {
-            try {
-                LocalDate date = LocalDate.parse(dateField.getText(), dateFormatter);
-                String studentName = studentField.getText();
-                double hourlyRate = Double.parseDouble(hourlyRateField.getText());
-                double hours = Double.parseDouble(hoursField.getText());
-                LessonStatus status = statusComboBox.getValue();
-
-                if (studentName.isEmpty()) {
-                    statusLabel.setText("Ошибка: Введите имя ученика.");
-                    return;
-                }
-                if (status == null) {
-                    statusLabel.setText("Ошибка: Выберите статус урока.");
-                    return;
-                }
-
-                Lesson newLesson = new Lesson(date, studentName, hourlyRate, hours, status);
-                lessons.add(newLesson);
-                System.out.println("Добавлен урок: " + newLesson.getFormattedDate() + ", " + newLesson.getStudentName());
-                saveLessonsToXML(); // Сохраняем уроки в XML после добавления
-                updateAutocompleteLists(); // Обновляем списки автодополнения
-                statusLabel.setText("Урок добавлен.");
-                dateField.clear();
-                studentField.clear();
-                hourlyRateField.clear();
-                hoursField.clear();
-                statusComboBox.setValue(LessonStatus.PLANNED);
-            } catch (Exception ex) {
-                statusLabel.setText("Ошибка: Проверьте введенные данные. " + ex.getMessage());
-                ex.printStackTrace();
-            }
-        });
-
-        pane.getChildren().addAll(
-                new Label("Дата урока:"), dateField,
-                new Label("Имя ученика:"), studentField,
-                new Label("Цена за 1 час:"), hourlyRateField,
-                new Label("Количество часов:"), hoursField,
-                new Label("Статус урока:"), statusComboBox,
-                addButton, statusLabel
-        );
-        return pane;
-    }
-
-    // Вкладка для списка уроков с календарем
+    // Вкладка для списка уроков с календарем и кнопкой "Добавить урок"
     private Pane createLessonsPane() {
         HBox mainPane = new HBox(10);
         mainPane.setPadding(new Insets(10));
@@ -404,6 +328,9 @@ public class EnglishLessonsTrackerFX extends Application {
         ComboBox<String> statusFilter = new ComboBox<>();
         statusFilter.getItems().addAll("Все", "Запланированные", "Состоявшиеся");
         statusFilter.setValue("Все");
+
+        // Кнопка "Добавить урок"
+        Button addLessonButton = new Button("Добавить урок");
 
         // Обновление списка учеников при изменении lessons
         lessons.addListener((ListChangeListener<Lesson>) change -> {
@@ -528,6 +455,92 @@ public class EnglishLessonsTrackerFX extends Application {
         statusFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue()));
         studentFilter.setOnAction(e -> updateFilter(filteredLessons, selectedDate[0], statusFilter.getValue(), studentFilter.getValue()));
 
+        // Логика добавления урока через диалоговое окно
+        addLessonButton.setOnAction(e -> {
+            Dialog<Lesson> dialog = new Dialog<>();
+            dialog.setTitle("Добавить урок");
+            dialog.setHeaderText("Введите данные урока");
+
+            // Кнопки
+            ButtonType addButtonType = new ButtonType("Добавить", ButtonBar.ButtonData.OK_DONE);
+            dialog.getDialogPane().getButtonTypes().addAll(addButtonType, ButtonType.CANCEL);
+
+            // Поля ввода с автодополнением
+            GridPane grid = new GridPane();
+            grid.setHgap(10);
+            grid.setVgap(10);
+            grid.setPadding(new Insets(20, 150, 10, 10));
+
+            TextField dateField = new TextField();
+            dateField.setPromptText("Дата (дд.мм.гггг)");
+            TextFields.bindAutoCompletion(dateField, previousDates);
+
+            TextField studentField = new TextField();
+            studentField.setPromptText("Имя ученика");
+            TextFields.bindAutoCompletion(studentField, previousStudentNames);
+
+            TextField hourlyRateField = new TextField();
+            hourlyRateField.setPromptText("Цена за 1 час (руб)");
+            TextFields.bindAutoCompletion(hourlyRateField, previousHourlyRates);
+
+            TextField hoursField = new TextField();
+            hoursField.setPromptText("Количество часов");
+            TextFields.bindAutoCompletion(hoursField, previousHours);
+
+            ComboBox<LessonStatus> statusComboBox = new ComboBox<>();
+            statusComboBox.getItems().addAll(LessonStatus.PLANNED, LessonStatus.COMPLETED);
+            statusComboBox.setValue(LessonStatus.PLANNED);
+
+            grid.add(new Label("Дата урока:"), 0, 0);
+            grid.add(dateField, 1, 0);
+            grid.add(new Label("Имя ученика:"), 0, 1);
+            grid.add(studentField, 1, 1);
+            grid.add(new Label("Цена за 1 час:"), 0, 2);
+            grid.add(hourlyRateField, 1, 2);
+            grid.add(new Label("Количество часов:"), 0, 3);
+            grid.add(hoursField, 1, 3);
+            grid.add(new Label("Статус урока:"), 0, 4);
+            grid.add(statusComboBox, 1, 4);
+
+            dialog.getDialogPane().setContent(grid);
+
+            // Преобразование результата диалога в объект Lesson
+            dialog.setResultConverter(dialogButton -> {
+                if (dialogButton == addButtonType) {
+                    try {
+                        LocalDate date = LocalDate.parse(dateField.getText(), dateFormatter);
+                        String studentName = studentField.getText();
+                        double hourlyRate = Double.parseDouble(hourlyRateField.getText());
+                        double hours = Double.parseDouble(hoursField.getText());
+                        LessonStatus status = statusComboBox.getValue();
+
+                        if (studentName.isEmpty()) {
+                            throw new IllegalArgumentException("Имя ученика не может быть пустым");
+                        }
+                        if (status == null) {
+                            throw new IllegalArgumentException("Статус урока должен быть выбран");
+                        }
+
+                        return new Lesson(date, studentName, hourlyRate, hours, status);
+                    } catch (Exception ex) {
+                        Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка: Проверьте введенные данные. " + ex.getMessage());
+                        alert.showAndWait();
+                        return null;
+                    }
+                }
+                return null;
+            });
+
+            // Обработка результата
+            Optional<Lesson> result = dialog.showAndWait();
+            result.ifPresent(newLesson -> {
+                lessons.add(newLesson);
+                System.out.println("Добавлен урок: " + newLesson.getFormattedDate() + ", " + newLesson.getStudentName());
+                saveLessonsToXML();
+                updateAutocompleteLists();
+            });
+        });
+
         // Логика календаря
         Runnable showCalendar = () -> {
             try {
@@ -626,6 +639,7 @@ public class EnglishLessonsTrackerFX extends Application {
         tablePane.getChildren().addAll(
                 new Label("Фильтр по статусу:"), statusFilter,
                 new Label("Фильтр по ученику:"), studentFilter,
+                addLessonButton, // Добавляем кнопку "Добавить урок"
                 table
         );
 
