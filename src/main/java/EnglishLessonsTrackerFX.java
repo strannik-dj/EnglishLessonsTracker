@@ -12,6 +12,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.*;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 import org.controlsfx.control.textfield.TextFields;
 import org.w3c.dom.Document;
@@ -33,15 +34,13 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.5.0
+ * Версия: v1.6.0
  * Дата: 28.04.2025
  * Изменения:
- * - Добавлено перечисление LessonPaidStatus (PAID, UNPAID).
- * - Обновлены добавление/редактирование уроков для задания paidStatus.
- * - Обновлена подсветка календаря: PLANNED+PAID → оранжевый, COMPLETED+PAID → зелёный, PLANNED+UNPAID → голубой, COMPLETED+UNPAID → жёлтый.
- * - Добавлен столбец paidStatus в таблицу уроков.
- * - Обеспечена обратная совместимость с lessons.xml (по умолчанию UNPAID).
- * - Сохранены функции v1.4.0 (автообновление календаря, синяя подсветка для PLANNED+COMPLETED, сортировка).
+ * - Обновлена подсветка календаря: зелёный цвет для PLANNED+PAID + COMPLETED+PAID.
+ * - Добавлена легенда цветов под календарём.
+ * - В "Итоги по ученикам" добавлены столбец "Статус оплаты" и фильтр по статусу оплаты.
+ * - Сохранены функции v1.5.0 (LessonPaidStatus, автообновление, текущая подсветка).
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -137,11 +136,13 @@ public class EnglishLessonsTrackerFX extends Application {
         private final SimpleStringProperty studentName;
         private final SimpleDoubleProperty lessonCount;
         private final SimpleDoubleProperty totalCost;
+        private final SimpleStringProperty paidStatus;
 
-        public StudentSummary(String studentName, double lessonCount, double totalCost) {
+        public StudentSummary(String studentName, double lessonCount, double totalCost, String paidStatus) {
             this.studentName = new SimpleStringProperty(studentName);
             this.lessonCount = new SimpleDoubleProperty(lessonCount);
             this.totalCost = new SimpleDoubleProperty(totalCost);
+            this.paidStatus = new SimpleStringProperty(paidStatus);
         }
 
         public String getStudentName() {
@@ -154,6 +155,10 @@ public class EnglishLessonsTrackerFX extends Application {
 
         public double getTotalCost() {
             return totalCost.get();
+        }
+
+        public String getPaidStatus() {
+            return paidStatus.get();
         }
     }
 
@@ -413,7 +418,9 @@ public class EnglishLessonsTrackerFX extends Application {
 
                     // Устанавливаем стиль с приоритетом
                     String baseStyle = "-fx-border-color: black; -fx-border-width: 1;";
-                    if (hasCompleted && hasPlanned) {
+                    if (hasPlannedPaid && hasCompletedPaid) {
+                        dayLabel.setStyle("-fx-background-color: green; " + baseStyle);
+                    } else if (hasCompleted && hasPlanned) {
                         dayLabel.setStyle("-fx-background-color: blue; -fx-text-fill: white; " + baseStyle);
                     } else if (hasCompletedPaid) {
                         dayLabel.setStyle("-fx-background-color: green; " + baseStyle);
@@ -430,12 +437,13 @@ public class EnglishLessonsTrackerFX extends Application {
                     }
 
                     // Hover-эффект
-                    String hoverStyle = (hasCompleted && hasPlanned) ? "-fx-background-color: skyblue;" :
-                            hasCompletedPaid ? "-fx-background-color: limegreen;" :
-                                    hasPlannedPaid ? "-fx-background-color: darkorange;" :
-                                            hasCompletedUnpaid ? "-fx-background-color: gold;" :
-                                                    hasPlannedUnpaid ? "-fx-background-color: skyblue;" :
-                                                            "-fx-background-color: #f0f0f0;";
+                    String hoverStyle = (hasPlannedPaid && hasCompletedPaid) ? "-fx-background-color: limegreen;" :
+                            (hasCompleted && hasPlanned) ? "-fx-background-color: skyblue;" :
+                                    hasCompletedPaid ? "-fx-background-color: limegreen;" :
+                                            hasPlannedPaid ? "-fx-background-color: darkorange;" :
+                                                    hasCompletedUnpaid ? "-fx-background-color: gold;" :
+                                                            hasPlannedUnpaid ? "-fx-background-color: skyblue;" :
+                                                                    "-fx-background-color: #f0f0f0;";
                     dayLabel.setOnMouseEntered(event -> {
                         String currentStyle = dayLabel.getStyle();
                         dayLabel.setStyle(hoverStyle + " " + currentStyle);
@@ -464,6 +472,18 @@ public class EnglishLessonsTrackerFX extends Application {
             }
         };
 
+        // Легенда цветов
+        HBox legendBox = new HBox(10);
+        legendBox.setPadding(new Insets(10));
+        legendBox.getChildren().addAll(
+                createLegendItem("green", "Состоявшийся (Оплаченный) или Запланированный+Состоявшийся (оба Оплаченные)"),
+                createLegendItem("orange", "Запланированный (Оплаченный)"),
+                createLegendItem("yellow", "Состоявшийся (Неоплаченный)"),
+                createLegendItem("lightblue", "Запланированный (Неоплаченный)"),
+                createLegendItem("blue", "Запланированный + Состоявшийся"),
+                createLegendItem("lightgray", "Текущая дата")
+        );
+
         // Автоматический показ календаря при загрузке
         if (!monthField.getText().isEmpty()) {
             showCalendar.run();
@@ -482,7 +502,7 @@ public class EnglishLessonsTrackerFX extends Application {
         // Добавляем элементы в calendarPane
         calendarPane.getChildren().addAll(
                 new Label("Введите месяц для календаря:"), monthField,
-                showAllLessonsButton, calendarGrid
+                showAllLessonsButton, calendarGrid, new Label("Легенда:"), legendBox
         );
 
         // Обновление списка учеников при изменении lessons
@@ -726,6 +746,16 @@ public class EnglishLessonsTrackerFX extends Application {
         return mainPane;
     }
 
+    // Метод для создания элемента легенды
+    private HBox createLegendItem(String color, String description) {
+        Rectangle colorSquare = new Rectangle(15, 15);
+        colorSquare.setStyle("-fx-fill: " + color + "; -fx-stroke: black; -fx-stroke-width: 1;");
+        Label label = new Label(description);
+        HBox item = new HBox(5, colorSquare, label);
+        item.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        return item;
+    }
+
     // Метод для обновления фильтра
     private void updateFilter(FilteredList<Lesson> filteredLessons, LocalDate selectedDate, String statusFilter, String studentFilter) {
         System.out.println("updateFilter: selectedDate=" + selectedDate + ", statusFilter=" + statusFilter + ", studentFilter=" + studentFilter);
@@ -865,6 +895,10 @@ public class EnglishLessonsTrackerFX extends Application {
         );
         studentFilter.setValue("Все");
 
+        ComboBox<String> paidStatusFilter = new ComboBox<>();
+        paidStatusFilter.getItems().addAll("Все", "Оплаченные", "Неоплаченные");
+        paidStatusFilter.setValue("Все");
+
         // Обновление списка учеников при изменении lessons
         lessons.addListener((ListChangeListener<Lesson>) change -> {
             Platform.runLater(() -> {
@@ -934,7 +968,11 @@ public class EnglishLessonsTrackerFX extends Application {
         totalCostColumn.setCellValueFactory(new PropertyValueFactory<>("totalCost"));
         totalCostColumn.setSortable(true);
 
-        table.getColumns().addAll(studentColumn, hoursColumn, totalCostColumn);
+        TableColumn<StudentSummary, String> paidStatusColumn = new TableColumn<>("Статус оплаты");
+        paidStatusColumn.setCellValueFactory(new PropertyValueFactory<>("paidStatus"));
+        paidStatusColumn.setSortable(true);
+
+        table.getColumns().addAll(studentColumn, hoursColumn, totalCostColumn, paidStatusColumn);
 
         // Логика отображения итогов
         Runnable showSummary = () -> {
@@ -943,6 +981,7 @@ public class EnglishLessonsTrackerFX extends Application {
                 LocalDate startDate = yearMonth.atDay(1);
                 LocalDate endDate = yearMonth.atEndOfMonth();
                 String selectedStudent = studentFilter.getValue();
+                String selectedPaidStatus = paidStatusFilter.getValue();
 
                 ObservableList<StudentSummary> summaries = FXCollections.observableArrayList();
                 var filteredLessons = lessons.stream()
@@ -954,13 +993,23 @@ public class EnglishLessonsTrackerFX extends Application {
                     filteredLessons = filteredLessons.filter(lesson -> lesson.getStudentName().equals(selectedStudent));
                 }
 
+                // Применяем фильтр по статусу оплаты
+                if (selectedPaidStatus != null && !"Все".equals(selectedPaidStatus)) {
+                    filteredLessons = filteredLessons.filter(lesson ->
+                            (selectedPaidStatus.equals("Оплаченные") && lesson.getPaidStatus() == LessonPaidStatus.PAID) ||
+                                    (selectedPaidStatus.equals("Неоплаченные") && lesson.getPaidStatus() == LessonPaidStatus.UNPAID));
+                }
+
                 var studentGroups = filteredLessons.collect(Collectors.groupingBy(Lesson::getStudentName));
 
                 // Добавляем итоги по каждому ученику
                 studentGroups.forEach((student, lessonList) -> {
                     double totalHours = lessonList.stream().mapToDouble(Lesson::getHours).sum();
                     double totalCost = lessonList.stream().mapToDouble(Lesson::getTotalCost).sum();
-                    summaries.add(new StudentSummary(student, totalHours, totalCost));
+                    boolean allPaid = lessonList.stream().allMatch(lesson -> lesson.getPaidStatus() == LessonPaidStatus.PAID);
+                    boolean allUnpaid = lessonList.stream().allMatch(lesson -> lesson.getPaidStatus() == LessonPaidStatus.UNPAID);
+                    String paidStatus = allPaid ? "Оплаченный" : allUnpaid ? "Неоплаченный" : "Смешанный";
+                    summaries.add(new StudentSummary(student, totalHours, totalCost, paidStatus));
                 });
 
                 // Добавляем строку "ИТОГО"
@@ -973,7 +1022,14 @@ public class EnglishLessonsTrackerFX extends Application {
                         .mapToDouble(Lesson::getTotalCost)
                         .sum();
                 if (!summaries.isEmpty()) {
-                    summaries.add(new StudentSummary("ИТОГО", grandTotalHours, grandTotalCost));
+                    boolean allPaid = studentGroups.values().stream()
+                            .flatMap(List::stream)
+                            .allMatch(lesson -> lesson.getPaidStatus() == LessonPaidStatus.PAID);
+                    boolean allUnpaid = studentGroups.values().stream()
+                            .flatMap(List::stream)
+                            .allMatch(lesson -> lesson.getPaidStatus() == LessonPaidStatus.UNPAID);
+                    String paidStatus = allPaid ? "Оплаченный" : allUnpaid ? "Неоплаченный" : "Смешанный";
+                    summaries.add(new StudentSummary("ИТОГО", grandTotalHours, grandTotalCost, paidStatus));
                 }
 
                 table.setItems(summaries);
@@ -989,12 +1045,14 @@ public class EnglishLessonsTrackerFX extends Application {
         // Обновление итогов по кнопке
         showSummaryButton.setOnAction(e -> showSummary.run());
 
-        // Обновление итогов при изменении фильтра по ученику
+        // Обновление итогов при изменении фильтров
         studentFilter.setOnAction(e -> showSummary.run());
+        paidStatusFilter.setOnAction(e -> showSummary.run());
 
         pane.getChildren().addAll(
                 new Label("Введите месяц для итогов:"), monthField,
                 new Label("Фильтр по ученику:"), studentFilter,
+                new Label("Фильтр по статусу оплаты:"), paidStatusFilter,
                 showSummaryButton, table
         );
         return pane;
