@@ -6,6 +6,7 @@ import javafx.collections.FXCollections;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
+import javafx.collections.transformation.SortedList;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -32,13 +33,13 @@ import java.util.stream.Collectors;
 
 /**
  * EnglishLessonsTrackerFX - приложение для учёта уроков английского языка.
- * Версия: v1.2.0
+ * Версия: v1.3.0
  * Дата: 28.04.2025
  * Изменения:
- * - Удалена вкладка "Добавить урок".
- * - Добавлена кнопка "Добавить урок" на вкладке "Список уроков".
- * - Логика добавления урока перенесена в диалоговое окно, вызываемое кнопкой.
- * - Метод createAddLessonPane удалён, функционал интегрирован в createLessonsPane.
+ * - Исправлена сортировка таблицы уроков с использованием SortedList.
+ * - Исправлена подсветка календаря: жёлтый фон для дат с состоявшимися уроками имеет приоритет.
+ * - Добавлено логирование для проверки уроков в календаре.
+ * - Сохранена функциональность v1.2.0 (кнопка "Добавить урок" вместо вкладки).
  */
 @SuppressWarnings("unchecked")
 public class EnglishLessonsTrackerFX extends Application {
@@ -189,6 +190,7 @@ public class EnglishLessonsTrackerFX extends Application {
 
                 lessons.add(new Lesson(date, studentName, hourlyRate, hours, status));
             }
+            System.out.println("Loaded lessons from XML: " + lessons.size());
         } catch (Exception e) {
             Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка при загрузке данных из XML: " + e.getMessage());
             alert.showAndWait();
@@ -241,6 +243,7 @@ public class EnglishLessonsTrackerFX extends Application {
             StreamResult result = new StreamResult(xmlFile);
             transformer.transform(source, result);
         } catch (Exception e) {
+            System.out.println("saveLessonsToXML error: " + e.getMessage());
             Alert alert = new Alert(Alert.AlertType.ERROR, "Ошибка при сохранении данных в XML: " + e.getMessage());
             alert.showAndWait();
         }
@@ -365,7 +368,10 @@ public class EnglishLessonsTrackerFX extends Application {
 
         // Таблица уроков
         TableView<Lesson> table = new TableView<>();
-        table.setItems(filteredLessons);
+        // Используем SortedList для сортировки
+        SortedList<Lesson> sortedLessons = new SortedList<>(filteredLessons);
+        sortedLessons.comparatorProperty().bind(table.comparatorProperty());
+        table.setItems(sortedLessons);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
         table.setSortPolicy(param -> true); // Включаем сортировку
 
@@ -566,11 +572,6 @@ public class EnglishLessonsTrackerFX extends Application {
                     dayLabel.setPadding(new Insets(5));
                     dayLabel.setStyle("-fx-border-color: black; -fx-border-width: 1;");
 
-                    // Проверяем, является ли день текущим
-                    if (date.equals(today)) {
-                        dayLabel.setStyle("-fx-background-color: lightgray; -fx-font-weight: bold; -fx-border-color: black; -fx-border-width: 1;");
-                    }
-
                     // Проверяем наличие уроков
                     List<Lesson> lessonsOnDate = lessons.stream()
                             .filter(lesson -> lesson.getDate().equals(date))
@@ -578,14 +579,20 @@ public class EnglishLessonsTrackerFX extends Application {
                     boolean hasPlanned = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.PLANNED);
                     boolean hasCompleted = lessonsOnDate.stream().anyMatch(lesson -> lesson.getStatus() == LessonStatus.COMPLETED);
 
-                    // Устанавливаем фон
-                    String baseStyle = date.equals(today) ?
-                            "-fx-background-color: lightgray; -fx-font-weight: bold; -fx-border-color: black; -fx-border-width: 1;" :
-                            "-fx-border-color: black; -fx-border-width: 1;";
+                    // Логирование для диагностики
+                    if (day == 20 || day == 28) {
+                        System.out.println("Calendar date: " + date + ", hasCompleted: " + hasCompleted + ", hasPlanned: " + hasPlanned);
+                        lessonsOnDate.forEach(lesson -> System.out.println("Lesson: " + lesson.getFormattedDate() + ", Status: " + lesson.getStatus()));
+                    }
+
+                    // Устанавливаем стиль с приоритетом для COMPLETED
+                    String baseStyle = "-fx-border-color: black; -fx-border-width: 1;";
                     if (hasCompleted) {
                         dayLabel.setStyle("-fx-background-color: yellow; " + baseStyle);
                     } else if (hasPlanned) {
                         dayLabel.setStyle("-fx-background-color: lightblue; " + baseStyle);
+                    } else if (date.equals(today)) {
+                        dayLabel.setStyle("-fx-background-color: lightgray; -fx-font-weight: bold; " + baseStyle);
                     } else {
                         dayLabel.setStyle(baseStyle);
                     }
@@ -639,7 +646,7 @@ public class EnglishLessonsTrackerFX extends Application {
         tablePane.getChildren().addAll(
                 new Label("Фильтр по статусу:"), statusFilter,
                 new Label("Фильтр по ученику:"), studentFilter,
-                addLessonButton, // Добавляем кнопку "Добавить урок"
+                addLessonButton,
                 table
         );
 
@@ -689,9 +696,9 @@ public class EnglishLessonsTrackerFX extends Application {
         studentField.setPromptText("Имя ученика");
         TextFields.bindAutoCompletion(studentField, previousStudentNames);
 
-        TextField hourlyRateField = new TextField(String.valueOf(lesson.getHourlyRate()));
-        hourlyRateField.setPromptText("Цена за 1 час (руб)");
-        TextFields.bindAutoCompletion(hourlyRateField, previousHourlyRates);
+        TextField HourlyRateField = new TextField(String.valueOf(lesson.getHourlyRate()));
+        HourlyRateField.setPromptText("Цена за 1 час (руб)");
+        TextFields.bindAutoCompletion(HourlyRateField, previousHourlyRates);
 
         TextField hoursField = new TextField(String.valueOf(lesson.getHours()));
         hoursField.setPromptText("Количество часов");
@@ -706,7 +713,7 @@ public class EnglishLessonsTrackerFX extends Application {
         grid.add(new Label("Имя ученика:"), 0, 1);
         grid.add(studentField, 1, 1);
         grid.add(new Label("Цена за 1 час:"), 0, 2);
-        grid.add(hourlyRateField, 1, 2);
+        grid.add(HourlyRateField, 1, 2);
         grid.add(new Label("Количество часов:"), 0, 3);
         grid.add(hoursField, 1, 3);
         grid.add(new Label("Статус урока:"), 0, 4);
@@ -720,7 +727,7 @@ public class EnglishLessonsTrackerFX extends Application {
                 try {
                     LocalDate date = LocalDate.parse(dateField.getText(), dateFormatter);
                     String studentName = studentField.getText();
-                    double hourlyRate = Double.parseDouble(hourlyRateField.getText());
+                    double hourlyRate = Double.parseDouble(HourlyRateField.getText());
                     double hours = Double.parseDouble(hoursField.getText());
                     LessonStatus status = statusComboBox.getValue();
 
